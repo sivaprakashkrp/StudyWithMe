@@ -1,10 +1,12 @@
+import React from 'react'
 import './App.css'
+import Login from './pages/Login'
 
 function App() {
   return (
-    <>
-      <h1>Study With Me</h1>
-    </>
+    <React.Fragment>
+      <Login />
+    </React.Fragment>
   )
 }
 
