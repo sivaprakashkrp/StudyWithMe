@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+@theme {
+    --font-days: "Days One",  sans-serif;
+    --color-swm-blue: #173ff1;
+}
+
+.nav-links {
+    @apply border-b-2 border-transparent hover:border-white transition-colors
+}
