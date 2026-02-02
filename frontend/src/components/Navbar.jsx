@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 const Navbar = () => {
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth > 768 ? false : true);
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth <= 768) {
@@ -23,23 +23,28 @@ const Navbar = () => {
         <div className="left text-2xl px-3 md:text-3xl">
           <h1 className="">Study With Me</h1>
         </div>
-        <div className="right w-1/3">
-          {isMobile ? () => {
-            return (
-              <div className="">Hello there</div>
-            )
-          } : <NavLinks />
-          }
+        <div className="right w-1/3 relative">
+          {isMobile ? <MobileNavbar /> : <NavLinks classlist={""} />}
         </div >
       </nav >
     </React.Fragment >
   )
 }
 
-const NavLinks = () => {
+const MobileNavbar = () => {
+  const [menuIsVisible, setMenuIsVisible] = useState(false)
   return (
     <React.Fragment>
-      <ul className="flex flex-col md:flex-row w-full justify-between items-center px-6">
+      <NavLinks classlist={`${menuIsVisible ? "block" : "hidden"} absolute top-8 right-0 bg-swm-blue text-xl gap-5 p-5 rounded-b-xl`} />
+      <button className="absolute right-5 -top-4 text-white font-days text-2xl font-bold" onClick={() => setMenuIsVisible(!menuIsVisible)}>{!menuIsVisible ? "☰" : "X"}</button>
+    </React.Fragment>
+  )
+}
+
+const NavLinks = ({ classlist }) => {
+  return (
+    <React.Fragment>
+      <ul className={`flex flex-col md:flex-row w-full justify-between items-center px-6 ${classlist}`}>
         <li className="nav-links"><a href="/">Home</a></li>
         <li className="nav-links"><a href="/about">About</a></li>
         <li className="nav-links"><a href="/signup">Sign Up</a></li>
