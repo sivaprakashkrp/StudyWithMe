@@ -17,7 +17,7 @@ const Dashboard = () => {
         </div>
 
         <div className="flex flex-col items-center pb-16">
-            <h3 className="text-4xl mb-8 font-days">Start a new meeting</h3>
+            <h3 className="text-4xl mb-8 font-days text-center">Start a new meeting</h3>
 
             {/* Dashboard Action Button */}
             <button

@@ -23,7 +23,7 @@ const Navbar = () => {
         <div className="left text-2xl px-3 md:text-3xl">
           <h1 className="">Study With Me</h1>
         </div>
-        <div className="right w-1/3 relative">
+        <div className="right w-2/5 md:w-1/3 relative">
           {isMobile ? <MobileNavbar /> : <NavLinks classlist={""} />}
         </div >
       </nav >
