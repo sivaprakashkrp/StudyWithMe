@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom';
 
 const Navbar = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth > 768 ? false : true);
@@ -42,12 +43,22 @@ const MobileNavbar = () => {
 }
 
 const NavLinks = ({ classlist }) => {
+  const location = useLocation();
+  const currentPath = location.pathname;
+  const [account, setAccount] = useState("Sign Up")
+
+  useEffect(() => {
+    if (currentPath == "/signup") {
+      setAccount("Sign In")
+    }
+  })
+
   return (
     <React.Fragment>
       <ul className={`flex flex-col md:flex-row w-full justify-between items-center px-6 ${classlist}`}>
         <li className="nav-links"><a href="/">Home</a></li>
         <li className="nav-links"><a href="/about">About</a></li>
-        <li className="nav-links"><a href="/signup">Sign Up</a></li>
+        <li className="nav-links"><a href="/signup">{account}</a></li>
       </ul>
     </React.Fragment>
   )
