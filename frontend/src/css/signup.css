@@ -1,0 +1,97 @@
+
+    .main {
+      display: flex;
+      height: 90vh;
+    }
+
+    .main-left {
+      flex: 1;
+      background: #7da0ff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .main-left img {
+      max-width: 80%;
+      height: auto;
+    }
+
+    .main-right {
+      flex: 1;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 60px;
+    }
+
+    .main-right h1 {
+      font-size: 42px;
+      font-weight: 700;
+      margin-bottom: 40px;
+    }
+
+    .form-card {
+      width: 420px;
+      background: #f5f6f8;
+      padding: 40px;
+      border-radius: 24px;
+      border: 2px solid #4a3cff;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .form-card label {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .form-card input {
+      height: 45px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 2px solid #4a3cff;
+      outline: none;
+      font-size: 16px;
+    }
+
+    .form-card button {
+      margin-top: 20px;
+      height: 50px;
+      border-radius: 16px;
+      border: none;
+      background: #3418ff;
+      color: white;
+      font-size: 20px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .login-text {
+      margin-top: 20px;
+      font-size: 16px;
+    }
+ 
+    .login-text span {
+      color: #3418ff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    @media (max-width: 850px) {
+      .main-left {
+        display: none;
+      }
+
+      .main-right {
+        padding: 30px;
+      }
+
+      .form-card {
+        width: 100%;
+        max-width: 400px;
+      }
+    }
