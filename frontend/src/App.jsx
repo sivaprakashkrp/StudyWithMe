@@ -5,6 +5,7 @@ import Whiteboard from './pages/Whiteboard'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Signup from './pages/Signup'
 import LandingPage from './pages/LandingPage'
+import MeetingPage from './pages/MeetingPage'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path='/login' element={<Login />} />
           <Route path='/Signup' element={<Signup />} />
           <Route path='/whiteboard' element={<Whiteboard />} />
+          <Route path='/meet/:meetingId' element={<MeetingPage />} />
         </Routes>
       </BrowserRouter>
     </React.Fragment>

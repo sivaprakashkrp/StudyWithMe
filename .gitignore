@@ -17,6 +17,10 @@ lerna-debug.log*
 
 # prompt files
 */prompt.md
+*/webrtc.md
+
+# secrets
+secrets/
 
 # planning files
 *.excalidraw
