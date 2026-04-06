@@ -1,6 +1,7 @@
 import React from 'react'
 import Navbar from '../components/Navbar'
-import '../css/signup.css'
+import '../css/signup.scss'
+import signupImg from '../assets/signup-img.svg'
 
 const Signup = () => {
   return (
@@ -16,7 +17,7 @@ const MainBody = () => {
     <>
       <div class="main">
         <div class="main-left">
-          <img src="your-image.png" alt="study"/>
+          <img src={signupImg} alt="study"/>
         </div>
 
         <div class="main-right">
@@ -42,4 +43,4 @@ const MainBody = () => {
         </>)
 }
 
-        export default Signup
+export default Signup

@@ -7,4 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()], excalidraw: {
     assetPath: "/"
   },
+  server: {
+		allowedHosts: ["degrees-hanging-amended-homework.trycloudflare.com"],
+	},
 })
