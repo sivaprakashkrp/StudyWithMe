@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Excalidraw } from '@excalidraw/excalidraw';
 import ChatPanel from '../components/ChatPanel.jsx';
 import ControlBar from '../components/ControlBar.jsx';
 import TransientOverlay from '../components/TransientOverlay.jsx';
@@ -29,6 +30,31 @@ const avatarLetter = (name) => {
   return safe ? safe[0].toUpperCase() : '?';
 };
 
+const sanitizeElements = (elements) => {
+  if (!elements || !Array.isArray(elements)) return [];
+  
+  return elements
+    .filter(el => el != null)
+    .map(el => {
+      if (typeof el !== 'object') return el;
+      
+      const cleaned = {};
+      Object.keys(el).forEach(key => {
+        const value = el[key];
+        if (value === undefined || typeof value === 'function') return;
+        if (typeof value === 'object' && value !== null) {
+          const sanitized = sanitizeElements(Array.isArray(value) ? value : [value]);
+          if (sanitized.length > 0) {
+            cleaned[key] = Array.isArray(value) ? sanitized : sanitized[0];
+          }
+        } else {
+          cleaned[key] = value;
+        }
+      });
+      return cleaned;
+    });
+};
+
 export default function MeetingPage() {
   const { meetingId = '' } = useParams();
   const location = useLocation();
@@ -40,12 +66,13 @@ export default function MeetingPage() {
   }, [location.search]);
 
   const [username, setUsername] = useState(usernameFromUrl || randomGuestName());
-  const [status, setStatus] = useState('Start webcam and join your room.');
+  const [status, setStatus] = useState('Start microphone and join your room.');
   const [statusError, setStatusError] = useState(false);
   const [joined, setJoined] = useState(false);
 
-  const [localAudioEnabled, setLocalAudioEnabled] = useState(true);
-  const [localVideoEnabled, setLocalVideoEnabled] = useState(true);
+  const [localAudioEnabled, setLocalAudioEnabled] = useState(false);
+  const [localVideoEnabled, setLocalVideoEnabled] = useState(false);
+  const [videoStreamStarted, setVideoStreamStarted] = useState(false);
 
   const [remotePeers, setRemotePeers] = useState([]);
   const [chatOpen, setChatOpen] = useState(false);
@@ -61,12 +88,17 @@ export default function MeetingPage() {
   );
 
   const [emojiMenuOpen, setEmojiMenuOpen] = useState(false);
+  const [showWhiteboard, setShowWhiteboard] = useState(true);
+  const [excalidrawAPI, setExcalidrawAPI] = useState(null);
+  const [whiteboardElements, setWhiteboardElements] = useState([]);
 
   const localStreamRef = useRef(null);
   const currentRoomIdRef = useRef('');
   const localParticipantIdRef = useRef('');
   const participantUnsubscribeRef = useRef(null);
   const signalUnsubscribeRef = useRef(null);
+  const whiteboardUnsubscribeRef = useRef(null);
+  const saveWhiteboardDebouncedRef = useRef(null);
 
   const peerConnectionsRef = useRef(new Map());
   const remoteStreamsRef = useRef(new Map());
@@ -206,6 +238,73 @@ export default function MeetingPage() {
       console.warn('State sync failed:', error);
     }
   }, [getLocalStatePayload]);
+
+  const saveWhiteboardToFirestore = useCallback(async (elements) => {
+    if (!currentRoomIdRef.current || !elements || !Array.isArray(elements)) return;
+    if (elements.length === 0) return;
+
+    if (saveWhiteboardDebouncedRef.current) {
+      clearTimeout(saveWhiteboardDebouncedRef.current);
+    }
+
+    saveWhiteboardDebouncedRef.current = setTimeout(async () => {
+      try {
+        const sanitized = sanitizeElements(elements);
+        const serialized = JSON.stringify(sanitized);
+        await getRoomRef(currentRoomIdRef.current)
+          .collection('whiteboard')
+          .doc('scene')
+          .set({ elementsJson: serialized, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      } catch (error) {
+        console.warn('Whiteboard save failed:', error);
+      }
+    }, 500);
+  }, []);
+
+  const loadWhiteboardFromFirestore = useCallback(async () => {
+    if (!currentRoomIdRef.current) return;
+
+    try {
+      const doc = await getRoomRef(currentRoomIdRef.current)
+        .collection('whiteboard')
+        .doc('scene')
+        .get();
+
+      if (doc.exists && doc.data().elementsJson) {
+        try {
+          const elements = JSON.parse(doc.data().elementsJson);
+          setWhiteboardElements(elements);
+          if (excalidrawAPI) {
+            excalidrawAPI.updateScene({ elements });
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse whiteboard data:', parseError);
+        }
+      }
+    } catch (error) {
+      console.warn('Whiteboard load failed:', error);
+    }
+  }, [excalidrawAPI]);
+
+  const subscribeToWhiteboard = useCallback((roomId) => {
+    whiteboardUnsubscribeRef.current = getRoomRef(roomId)
+      .collection('whiteboard')
+      .doc('scene')
+      .onSnapshot((doc) => {
+        if (doc.exists && doc.data().elementsJson) {
+          try {
+            const elements = JSON.parse(doc.data().elementsJson);
+            if (excalidrawAPI) {
+              excalidrawAPI.updateScene({ elements });
+            }
+          } catch (parseError) {
+            console.warn('Failed to parse whiteboard data:', parseError);
+          }
+        }
+      }, (error) => {
+        console.warn('Whiteboard subscription failed:', error);
+      });
+  }, [excalidrawAPI]);
 
   const applyParticipantMeta = useCallback((peerId) => {
     const meta = participantMetaRef.current.get(peerId) || {};
@@ -439,19 +538,37 @@ export default function MeetingPage() {
       });
   }, [applyParticipantMeta, closePeerConnection, createOfferForPeer, handleSignal]);
 
-  const startMedia = useCallback(async () => {
+  const startAudio = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
       setLocalAudioEnabled(true);
-      setLocalVideoEnabled(true);
       await refreshAudioOutputs();
-      setStatusMessage('Webcam ready. Join room to connect.');
+      setStatusMessage('Microphone ready. Join room to connect.');
     } catch (error) {
-      console.error('Webcam access failed:', error);
-      setStatusMessage('Could not access webcam/microphone.', true);
+      console.error('Microphone access failed:', error);
+      setStatusMessage('Could not access microphone.', true);
     }
   }, [refreshAudioOutputs, setStatusMessage]);
+
+  const startVideo = useCallback(async () => {
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (localStreamRef.current) {
+        videoStream.getVideoTracks().forEach((track) => {
+          localStreamRef.current.addTrack(track);
+        });
+      } else {
+        localStreamRef.current = videoStream;
+      }
+      setVideoStreamStarted(true);
+      setLocalVideoEnabled(true);
+      setStatusMessage('Camera started.');
+    } catch (error) {
+      console.error('Camera access failed:', error);
+      setStatusMessage('Could not access camera.', true);
+    }
+  }, []);
 
   const joinRoom = useCallback(async () => {
     const roomId = decodeURIComponent(meetingId).trim();
@@ -464,7 +581,7 @@ export default function MeetingPage() {
     if (!ready) return;
 
     if (!localStreamRef.current) {
-      setStatusMessage('Start webcam before joining.', true);
+      setStatusMessage('Start microphone before joining.', true);
       return;
     }
 
@@ -486,19 +603,24 @@ export default function MeetingPage() {
       });
 
       subscribeToRoom(roomId);
+      subscribeToWhiteboard(roomId);
       setJoined(true);
       setStatusMessage(`Connected to room ${roomId}.`);
     } catch (error) {
       console.error('Join room failed:', error);
       setStatusMessage('Failed to join room. Check Firestore permissions.', true);
     }
-  }, [ensureFirestoreReady, localAudioEnabled, localVideoEnabled, meetingId, setStatusMessage, subscribeToRoom, username]);
+  }, [ensureFirestoreReady, localAudioEnabled, localVideoEnabled, meetingId, setStatusMessage, subscribeToRoom, subscribeToWhiteboard, username]);
 
   const leaveRoom = useCallback(async (stopMedia = false) => {
     if (participantUnsubscribeRef.current) participantUnsubscribeRef.current();
     if (signalUnsubscribeRef.current) signalUnsubscribeRef.current();
+    if (whiteboardUnsubscribeRef.current) whiteboardUnsubscribeRef.current();
+    if (saveWhiteboardDebouncedRef.current) clearTimeout(saveWhiteboardDebouncedRef.current);
     participantUnsubscribeRef.current = null;
     signalUnsubscribeRef.current = null;
+    whiteboardUnsubscribeRef.current = null;
+    saveWhiteboardDebouncedRef.current = null;
 
     const roomId = currentRoomIdRef.current;
     const participantId = localParticipantIdRef.current;
@@ -518,6 +640,7 @@ export default function MeetingPage() {
     currentRoomIdRef.current = '';
     localParticipantIdRef.current = '';
     setJoined(false);
+    setVideoStreamStarted(false);
 
     if (stopMedia && localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -538,19 +661,30 @@ export default function MeetingPage() {
   }, [localAudioEnabled]);
 
   const toggleVideo = useCallback(async () => {
+    if (!videoStreamStarted) {
+      await startVideo();
+      return;
+    }
+    
     if (!localStreamRef.current) return;
     const next = !localVideoEnabled;
     localStreamRef.current.getVideoTracks().forEach((track) => {
       track.enabled = next;
     });
     setLocalVideoEnabled(next);
-  }, [localVideoEnabled]);
+  }, [videoStreamStarted, startVideo, localVideoEnabled]);
 
   useEffect(() => {
     if (!joined) return;
     pushLocalStateToFirestore();
     broadcastLocalState();
   }, [joined, localAudioEnabled, localVideoEnabled, username, pushLocalStateToFirestore, broadcastLocalState]);
+
+  useEffect(() => {
+    if (joined) {
+      loadWhiteboardFromFirestore();
+    }
+  }, [joined, loadWhiteboardFromFirestore]);
 
   const handleSendChat = useCallback((event) => {
     event.preventDefault();
@@ -575,6 +709,11 @@ export default function MeetingPage() {
     sendDataToAllPeers({ type: 'emoji', username: sender, emoji, ts: Date.now() });
   }, [addReaction, joined, sendDataToAllPeers, username]);
 
+  const handleWhiteboardChange = useCallback((elements) => {
+    if (!joined) return;
+    saveWhiteboardToFirestore(elements);
+  }, [joined, saveWhiteboardToFirestore]);
+
   useEffect(() => {
     const handleDeviceChange = () => {
       refreshAudioOutputs().catch((error) => {
@@ -597,6 +736,8 @@ export default function MeetingPage() {
     return () => {
       if (participantUnsubscribeRef.current) participantUnsubscribeRef.current();
       if (signalUnsubscribeRef.current) signalUnsubscribeRef.current();
+      if (whiteboardUnsubscribeRef.current) whiteboardUnsubscribeRef.current();
+      if (saveWhiteboardDebouncedRef.current) clearTimeout(saveWhiteboardDebouncedRef.current);
 
       if (currentRoomIdRef.current && localParticipantIdRef.current) {
         getRoomRef(currentRoomIdRef.current)
@@ -634,10 +775,10 @@ export default function MeetingPage() {
 
           <button
             type="button"
-            onClick={startMedia}
+            onClick={startAudio}
             className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white"
           >
-            Start Webcam
+            Start Mic
           </button>
 
           <button
@@ -674,16 +815,16 @@ export default function MeetingPage() {
         <p className={`mt-2 text-sm ${statusError ? 'text-red-700' : 'text-cyan-700'}`}>{status}</p>
       </header>
 
-      <section className="mt-4 grid max-h-[67vh] gap-3 overflow-y-auto">
-        <VideoTile
-          title={`${normalizeName(username) || 'You'} (You)`}
-          stream={localStreamRef.current}
-          videoEnabled={localVideoEnabled}
-          avatarLetter={localAvatar}
-          muted
-        />
+      <section className={`mt-4 flex gap-3 ${showWhiteboard ? 'h-[67vh]' : 'max-h-[67vh]'}`}>
+        <div className={`flex flex-col gap-3 overflow-y-auto snap-y snap-mandatory h-full custom-scrollbar ${showWhiteboard ? 'w-[20%]' : 'w-full'}`}>
+          <VideoTile
+            title={`${normalizeName(username) || 'You'} (You)`}
+            stream={localStreamRef.current}
+            videoEnabled={localVideoEnabled}
+            avatarLetter={localAvatar}
+            muted
+          />
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {remotePeers.map((peer) => (
             <VideoTile
               key={peer.id}
@@ -695,6 +836,24 @@ export default function MeetingPage() {
             />
           ))}
         </div>
+
+        {showWhiteboard && (
+          <div className="w-4/5 rounded-2xl border border-slate-300/70 bg-white overflow-hidden">
+            <div className="h-full">
+              <Excalidraw
+                onInit={(api) => {
+                  setExcalidrawAPI(api);
+                  if (whiteboardElements.length > 0) {
+                    api.updateScene({ elements: whiteboardElements });
+                  }
+                }}
+                initialData={whiteboardElements.length > 0 ? { elements: whiteboardElements } : null}
+                onChange={(elements) => handleWhiteboardChange(elements)}
+                viewModeEnabled={false}
+              />
+            </div>
+          </div>
+        )}
       </section>
 
       <TransientOverlay messageToasts={messageToasts} reactions={reactions} />
@@ -712,9 +871,12 @@ export default function MeetingPage() {
         joined={joined}
         audioEnabled={localAudioEnabled}
         videoEnabled={localVideoEnabled}
+        showWhiteboard={showWhiteboard}
+        videoStreamStarted={videoStreamStarted}
         onToggleAudio={toggleAudio}
         onToggleVideo={toggleVideo}
         onToggleChat={() => setChatOpen((prev) => !prev)}
+        onToggleWhiteboard={() => setShowWhiteboard((prev) => !prev)}
         onLeave={async () => {
           await leaveRoom(true);
           navigate('/');

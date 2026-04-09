@@ -4,13 +4,16 @@ export default function ControlBar({
   joined,
   audioEnabled,
   videoEnabled,
+  showWhiteboard,
   onToggleAudio,
   onToggleVideo,
   onToggleChat,
+  onToggleWhiteboard,
   onLeave,
   emojiMenuOpen,
   setEmojiMenuOpen,
   onEmoji,
+  videoStreamStarted,
 }) {
   return (
     <nav className="fixed right-2 bottom-2 left-2 z-40 mx-auto flex w-[min(900px,calc(100vw-1rem))] flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/40 bg-slate-900/88 p-2 backdrop-blur">
@@ -25,11 +28,10 @@ export default function ControlBar({
 
       <button
         type="button"
-        disabled={!joined}
         onClick={onToggleVideo}
-        className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-55"
+        className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800"
       >
-        {videoEnabled ? 'Stop Video' : 'Start Video'}
+        {!videoStreamStarted ? 'Start Video' : videoEnabled ? 'Stop Video' : 'Start Video'}
       </button>
 
       <button
@@ -39,6 +41,16 @@ export default function ControlBar({
         className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-55"
       >
         Messages
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggleWhiteboard}
+        className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+          showWhiteboard ? 'bg-green-600 hover:bg-green-700' : 'bg-cyan-700 hover:bg-cyan-800'
+        }`}
+      >
+        {showWhiteboard ? 'Hide Whiteboard' : 'Show Whiteboard'}
       </button>
 
       <div className="relative">

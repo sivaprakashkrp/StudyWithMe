@@ -31,20 +31,20 @@ export default function VideoTile({
   }, [sinkId]);
 
   return (
-    <article className="rounded-2xl border border-slate-300/70 bg-white/75 p-3 shadow-sm backdrop-blur"
+    <article className="snap-start flex-shrink-0 rounded-xl border border-slate-300/70 bg-white/75 p-2 shadow-sm backdrop-blur h-[140px]"
       data-video={videoEnabled ? 'on' : 'off'}
     >
-      <h3 className="mb-2 text-sm font-semibold text-slate-700">{title}</h3>
-      <div className="relative">
+      <h3 className="mb-1 text-xs font-semibold text-slate-700 truncate">{title}</h3>
+      <div className="relative h-[100px]">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={muted}
-          className={`aspect-video w-full rounded-xl bg-slate-900 object-cover ${videoEnabled ? '' : 'invisible'}`}
+          className={`h-full w-full rounded-lg bg-slate-900 object-cover ${videoEnabled ? '' : 'invisible'}`}
         />
         {!videoEnabled && (
-          <div className="absolute inset-0 grid place-items-center rounded-xl bg-linear-to-br from-cyan-900 to-slate-900 text-5xl text-slate-100">
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-linear-to-br from-cyan-900 to-slate-900 text-2xl text-slate-100">
             {avatarLetter}
           </div>
         )}
