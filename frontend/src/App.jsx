@@ -1,7 +1,6 @@
 import React from 'react'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import Whiteboard from './pages/Whiteboard'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import Signup from './pages/Signup'
 import LandingPage from './pages/LandingPage'
@@ -16,7 +15,6 @@ function App() {
           <Route path='/dashboard' element={<Dashboard />} />
           <Route path='/login' element={<Login />} />
           <Route path='/Signup' element={<Signup />} />
-          <Route path='/whiteboard' element={<Whiteboard />} />
           <Route path='/meet/:meetingId' element={<MeetingPage />} />
         </Routes>
       </BrowserRouter>

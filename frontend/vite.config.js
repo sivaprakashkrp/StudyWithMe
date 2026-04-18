@@ -8,6 +8,6 @@ export default defineConfig({
     assetPath: "/"
   },
   server: {
-		allowedHosts: ["degrees-hanging-amended-homework.trycloudflare.com"],
+		allowedHosts: ["policies-artwork-king-arising.trycloudflare.com"],
 	},
 })

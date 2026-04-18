@@ -1,0 +1,25 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$roomId": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["updatedAt"],
+        "participants": {
+          "$participantId": {
+            ".validate": "newData.hasChildren(['username'])"
+          }
+        },
+        "signals": {
+          ".indexOn": ["to", "createdAt"]
+        },
+        "whiteboard": {
+          ".read": true,
+          ".write": true
+        }
+      }
+    }
+  }
+}

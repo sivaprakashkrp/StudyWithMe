@@ -1,3 +1,5 @@
+import React, { useState } from 'react';
+
 const EMOJIS = ['👍', '👏', '😂', '❤️', '🔥', '🎉'];
 
 export default function ControlBar({
@@ -14,7 +16,16 @@ export default function ControlBar({
   setEmojiMenuOpen,
   onEmoji,
   videoStreamStarted,
+  meetingId,
 }) {
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}/meet/${meetingId}`;
+    navigator.clipboard.writeText(url);
+    setShareMenuOpen(false);
+  };
+
   return (
     <nav className="fixed right-2 bottom-2 left-2 z-40 mx-auto flex w-[min(900px,calc(100vw-1rem))] flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200/40 bg-slate-900/88 p-2 backdrop-blur">
       <button
@@ -52,6 +63,33 @@ export default function ControlBar({
       >
         {showWhiteboard ? 'Hide Whiteboard' : 'Show Whiteboard'}
       </button>
+
+      
+
+      {meetingId && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShareMenuOpen((prev) => !prev)}
+            className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-800"
+          >
+            Share
+          </button>
+
+          {shareMenuOpen && (
+            <div className="absolute bottom-full right-0 mb-2 min-w-48 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="w-full rounded-md bg-cyan-50 px-3 py-2 text-left text-sm text-slate-700 hover:bg-cyan-100"
+              >
+                Copy Meeting Link
+              </button>
+              
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="relative">
         <button

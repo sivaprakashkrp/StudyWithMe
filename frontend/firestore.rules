@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Room cleanup: delete rooms inactive for 4 hours
+    function isRoomInactive(roomData) {
+      return roomData.updatedAt.timestamp < request.time - duration.value(4, 'h');
+    }
+    
+    // Room documents (room metadata)
+    match /rooms/{roomId} {
+      allow read: if true;
+      allow write: if true;
+      allow delete: if isRoomInactive(resource.data);
+      
+      // Subcollections
+      match /participants/{document=**} {
+        allow read, write, delete: if true;
+      }
+      match /signals/{document=**} {
+        allow read, write: if true;
+      }
+      match /whiteboard/{document=**} {
+        allow read, write: if true;
+      }
+    }
+    
+    // Healthcheck (for Firestore availability check)
+    match /_healthcheck/{document} {
+      allow read: if true;
+    }
+  }
+}

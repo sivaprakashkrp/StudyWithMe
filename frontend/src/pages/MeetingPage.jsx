@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Excalidraw } from '@excalidraw/excalidraw';
 import ChatPanel from '../components/ChatPanel.jsx';
 import ControlBar from '../components/ControlBar.jsx';
 import TransientOverlay from '../components/TransientOverlay.jsx';
 import VideoTile from '../components/VideoTile.jsx';
-import { FieldValue, firestore } from '../lib/firebase.js';
+import TldrawWhiteboard from '../components/TldrawWhiteboard.jsx';
+import { firestore } from '../lib/firebase.js';
 
 const servers = {
   iceServers: [
@@ -28,31 +28,6 @@ const normalizeName = (name) => {
 const avatarLetter = (name) => {
   const safe = normalizeName(name);
   return safe ? safe[0].toUpperCase() : '?';
-};
-
-const sanitizeElements = (elements) => {
-  if (!elements || !Array.isArray(elements)) return [];
-  
-  return elements
-    .filter(el => el != null)
-    .map(el => {
-      if (typeof el !== 'object') return el;
-      
-      const cleaned = {};
-      Object.keys(el).forEach(key => {
-        const value = el[key];
-        if (value === undefined || typeof value === 'function') return;
-        if (typeof value === 'object' && value !== null) {
-          const sanitized = sanitizeElements(Array.isArray(value) ? value : [value]);
-          if (sanitized.length > 0) {
-            cleaned[key] = Array.isArray(value) ? sanitized : sanitized[0];
-          }
-        } else {
-          cleaned[key] = value;
-        }
-      });
-      return cleaned;
-    });
 };
 
 export default function MeetingPage() {
@@ -89,16 +64,12 @@ export default function MeetingPage() {
 
   const [emojiMenuOpen, setEmojiMenuOpen] = useState(false);
   const [showWhiteboard, setShowWhiteboard] = useState(true);
-  const [excalidrawAPI, setExcalidrawAPI] = useState(null);
-  const [whiteboardElements, setWhiteboardElements] = useState([]);
 
   const localStreamRef = useRef(null);
   const currentRoomIdRef = useRef('');
   const localParticipantIdRef = useRef('');
   const participantUnsubscribeRef = useRef(null);
   const signalUnsubscribeRef = useRef(null);
-  const whiteboardUnsubscribeRef = useRef(null);
-  const saveWhiteboardDebouncedRef = useRef(null);
 
   const peerConnectionsRef = useRef(new Map());
   const remoteStreamsRef = useRef(new Map());
@@ -188,8 +159,10 @@ export default function MeetingPage() {
     if (firestoreReadyRef.current) return true;
 
     try {
-      await firestore.collection('_healthcheck').limit(1).get();
+      const roomRef = getRoomRef('_ready_check');
+      await roomRef.set({ timestamp: Date.now() }, { merge: true });
       firestoreReadyRef.current = true;
+      console.log('[Firestore] Connection verified');
       return true;
     } catch (error) {
       console.error('Firestore check failed:', error);
@@ -209,7 +182,7 @@ export default function MeetingPage() {
       from: localParticipantIdRef.current,
       to,
       ...payload,
-      createdAt: FieldValue.serverTimestamp(),
+      createdAt: new Date().toISOString(),
     });
   }, []);
 
@@ -233,78 +206,11 @@ export default function MeetingPage() {
       await getRoomRef(currentRoomIdRef.current)
         .collection('participants')
         .doc(localParticipantIdRef.current)
-        .set({ ...getLocalStatePayload(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        .set({ ...getLocalStatePayload(), updatedAt: new Date().toISOString() }, { merge: true });
     } catch (error) {
       console.warn('State sync failed:', error);
     }
   }, [getLocalStatePayload]);
-
-  const saveWhiteboardToFirestore = useCallback(async (elements) => {
-    if (!currentRoomIdRef.current || !elements || !Array.isArray(elements)) return;
-    if (elements.length === 0) return;
-
-    if (saveWhiteboardDebouncedRef.current) {
-      clearTimeout(saveWhiteboardDebouncedRef.current);
-    }
-
-    saveWhiteboardDebouncedRef.current = setTimeout(async () => {
-      try {
-        const sanitized = sanitizeElements(elements);
-        const serialized = JSON.stringify(sanitized);
-        await getRoomRef(currentRoomIdRef.current)
-          .collection('whiteboard')
-          .doc('scene')
-          .set({ elementsJson: serialized, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      } catch (error) {
-        console.warn('Whiteboard save failed:', error);
-      }
-    }, 500);
-  }, []);
-
-  const loadWhiteboardFromFirestore = useCallback(async () => {
-    if (!currentRoomIdRef.current) return;
-
-    try {
-      const doc = await getRoomRef(currentRoomIdRef.current)
-        .collection('whiteboard')
-        .doc('scene')
-        .get();
-
-      if (doc.exists && doc.data().elementsJson) {
-        try {
-          const elements = JSON.parse(doc.data().elementsJson);
-          setWhiteboardElements(elements);
-          if (excalidrawAPI) {
-            excalidrawAPI.updateScene({ elements });
-          }
-        } catch (parseError) {
-          console.warn('Failed to parse whiteboard data:', parseError);
-        }
-      }
-    } catch (error) {
-      console.warn('Whiteboard load failed:', error);
-    }
-  }, [excalidrawAPI]);
-
-  const subscribeToWhiteboard = useCallback((roomId) => {
-    whiteboardUnsubscribeRef.current = getRoomRef(roomId)
-      .collection('whiteboard')
-      .doc('scene')
-      .onSnapshot((doc) => {
-        if (doc.exists && doc.data().elementsJson) {
-          try {
-            const elements = JSON.parse(doc.data().elementsJson);
-            if (excalidrawAPI) {
-              excalidrawAPI.updateScene({ elements });
-            }
-          } catch (parseError) {
-            console.warn('Failed to parse whiteboard data:', parseError);
-          }
-        }
-      }, (error) => {
-        console.warn('Whiteboard subscription failed:', error);
-      });
-  }, [excalidrawAPI]);
 
   const applyParticipantMeta = useCallback((peerId) => {
     const meta = participantMetaRef.current.get(peerId) || {};
@@ -468,6 +374,7 @@ export default function MeetingPage() {
     const pc = getOrCreatePeerConnection(from);
 
     if (signal.type === 'offer') {
+      console.log('[WebRTC] Received offer from:', from);
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -479,6 +386,7 @@ export default function MeetingPage() {
     }
 
     if (signal.type === 'answer') {
+      console.log('[WebRTC] Received answer from:', from);
       if (!pc.currentRemoteDescription) {
         await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
       }
@@ -486,6 +394,11 @@ export default function MeetingPage() {
     }
 
     if (signal.type === 'candidate' && signal.candidate) {
+      console.log('[WebRTC] Received ICE candidate from:', from, 'has remote desc:', !!pc.currentRemoteDescription);
+      if (!pc.currentRemoteDescription) {
+        console.log('[WebRTC] Queued ICE candidate - waiting for remote description');
+        return;
+      }
       try {
         await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
       } catch (error) {
@@ -495,6 +408,7 @@ export default function MeetingPage() {
   }, [getOrCreatePeerConnection, sendSignal]);
 
   const subscribeToRoom = useCallback((roomId) => {
+    console.log('[WebRTC] Subscribing to room:', roomId);
     const roomRef = getRoomRef(roomId);
 
     participantUnsubscribeRef.current = roomRef.collection('participants').onSnapshot((snapshot) => {
@@ -513,12 +427,14 @@ export default function MeetingPage() {
         applyParticipantMeta(peerId);
 
         if (change.type === 'added' && localParticipantIdRef.current < peerId) {
+          console.log('[WebRTC] New peer joined, creating offer:', peerId);
           createOfferForPeer(peerId).catch((error) => {
             console.error(`Offer creation failed for ${peerId}:`, error);
           });
         }
 
         if (change.type === 'removed') {
+          console.log('[WebRTC] Peer left:', peerId);
           closePeerConnection(peerId);
         }
       });
@@ -571,6 +487,7 @@ export default function MeetingPage() {
   }, []);
 
   const joinRoom = useCallback(async () => {
+    console.log('[Meeting] joinRoom called');
     const roomId = decodeURIComponent(meetingId).trim();
     if (!roomId) {
       setStatusMessage('Invalid meeting ID.', true);
@@ -591,36 +508,32 @@ export default function MeetingPage() {
     try {
       currentRoomIdRef.current = roomId;
       localParticipantIdRef.current = randomParticipantId();
+      console.log('[Meeting] Joining room:', roomId, 'as', localParticipantIdRef.current);
 
       const roomRef = getRoomRef(roomId);
-      await roomRef.set({ updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await roomRef.set({ updatedAt: new Date().toISOString() }, { merge: true });
       await roomRef.collection('participants').doc(localParticipantIdRef.current).set({
         username: normalizedUsername,
         audioEnabled: localAudioEnabled,
         videoEnabled: localVideoEnabled,
-        joinedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
+        joinedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
 
       subscribeToRoom(roomId);
-      subscribeToWhiteboard(roomId);
       setJoined(true);
       setStatusMessage(`Connected to room ${roomId}.`);
     } catch (error) {
       console.error('Join room failed:', error);
       setStatusMessage('Failed to join room. Check Firestore permissions.', true);
     }
-  }, [ensureFirestoreReady, localAudioEnabled, localVideoEnabled, meetingId, setStatusMessage, subscribeToRoom, subscribeToWhiteboard, username]);
+  }, [ensureFirestoreReady, localAudioEnabled, localVideoEnabled, meetingId, setStatusMessage, subscribeToRoom, username]);
 
   const leaveRoom = useCallback(async (stopMedia = false) => {
     if (participantUnsubscribeRef.current) participantUnsubscribeRef.current();
     if (signalUnsubscribeRef.current) signalUnsubscribeRef.current();
-    if (whiteboardUnsubscribeRef.current) whiteboardUnsubscribeRef.current();
-    if (saveWhiteboardDebouncedRef.current) clearTimeout(saveWhiteboardDebouncedRef.current);
     participantUnsubscribeRef.current = null;
     signalUnsubscribeRef.current = null;
-    whiteboardUnsubscribeRef.current = null;
-    saveWhiteboardDebouncedRef.current = null;
 
     const roomId = currentRoomIdRef.current;
     const participantId = localParticipantIdRef.current;
@@ -680,12 +593,6 @@ export default function MeetingPage() {
     broadcastLocalState();
   }, [joined, localAudioEnabled, localVideoEnabled, username, pushLocalStateToFirestore, broadcastLocalState]);
 
-  useEffect(() => {
-    if (joined) {
-      loadWhiteboardFromFirestore();
-    }
-  }, [joined, loadWhiteboardFromFirestore]);
-
   const handleSendChat = useCallback((event) => {
     event.preventDefault();
     const text = chatInput.trim();
@@ -709,11 +616,6 @@ export default function MeetingPage() {
     sendDataToAllPeers({ type: 'emoji', username: sender, emoji, ts: Date.now() });
   }, [addReaction, joined, sendDataToAllPeers, username]);
 
-  const handleWhiteboardChange = useCallback((elements) => {
-    if (!joined) return;
-    saveWhiteboardToFirestore(elements);
-  }, [joined, saveWhiteboardToFirestore]);
-
   useEffect(() => {
     const handleDeviceChange = () => {
       refreshAudioOutputs().catch((error) => {
@@ -736,8 +638,6 @@ export default function MeetingPage() {
     return () => {
       if (participantUnsubscribeRef.current) participantUnsubscribeRef.current();
       if (signalUnsubscribeRef.current) signalUnsubscribeRef.current();
-      if (whiteboardUnsubscribeRef.current) whiteboardUnsubscribeRef.current();
-      if (saveWhiteboardDebouncedRef.current) clearTimeout(saveWhiteboardDebouncedRef.current);
 
       if (currentRoomIdRef.current && localParticipantIdRef.current) {
         getRoomRef(currentRoomIdRef.current)
@@ -839,19 +739,7 @@ export default function MeetingPage() {
 
         {showWhiteboard && (
           <div className="w-4/5 rounded-2xl border border-slate-300/70 bg-white overflow-hidden">
-            <div className="h-full">
-              <Excalidraw
-                onInit={(api) => {
-                  setExcalidrawAPI(api);
-                  if (whiteboardElements.length > 0) {
-                    api.updateScene({ elements: whiteboardElements });
-                  }
-                }}
-                initialData={whiteboardElements.length > 0 ? { elements: whiteboardElements } : null}
-                onChange={(elements) => handleWhiteboardChange(elements)}
-                viewModeEnabled={false}
-              />
-            </div>
+            <TldrawWhiteboard roomId={decodeURIComponent(meetingId)} />
           </div>
         )}
       </section>
@@ -884,6 +772,7 @@ export default function MeetingPage() {
         emojiMenuOpen={emojiMenuOpen}
         setEmojiMenuOpen={setEmojiMenuOpen}
         onEmoji={handleEmoji}
+        meetingId={meetingId}
       />
     </main>
   );
