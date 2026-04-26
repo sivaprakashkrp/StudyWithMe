@@ -8,6 +8,6 @@ export default defineConfig({
     assetPath: "/"
   },
   server: {
-		allowedHosts: ["degrees-hanging-amended-homework.trycloudflare.com"],
+		allowedHosts: ["quiz-resolve-massage-attempting.trycloudflare.com"],
 	},
 })

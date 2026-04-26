@@ -7,6 +7,8 @@ export default function ControlBar({
   onToggleAudio,
   onToggleVideo,
   onToggleChat,
+  onToggleWhiteboard,
+  whiteboardVisible,
   onLeave,
   emojiMenuOpen,
   setEmojiMenuOpen,
@@ -30,6 +32,15 @@ export default function ControlBar({
         className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-55"
       >
         {videoEnabled ? 'Stop Video' : 'Start Video'}
+      </button>
+
+      <button
+        type="button"
+        disabled={!joined}
+        onClick={onToggleWhiteboard}
+        className="rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-55"
+      >
+        {whiteboardVisible ? 'Hide Whiteboard' : 'Show Whiteboard'}
       </button>
 
       <button

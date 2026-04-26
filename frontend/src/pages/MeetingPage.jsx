@@ -4,6 +4,7 @@ import ChatPanel from '../components/ChatPanel.jsx';
 import ControlBar from '../components/ControlBar.jsx';
 import TransientOverlay from '../components/TransientOverlay.jsx';
 import VideoTile from '../components/VideoTile.jsx';
+import Whiteboard from '../components/Whiteboard.jsx';
 import { FieldValue, firestore } from '../lib/firebase.js';
 
 const servers = {
@@ -40,12 +41,12 @@ export default function MeetingPage() {
   }, [location.search]);
 
   const [username, setUsername] = useState(usernameFromUrl || randomGuestName());
-  const [status, setStatus] = useState('Start webcam and join your room.');
+  const [status, setStatus] = useState('Enter username and join room.');
   const [statusError, setStatusError] = useState(false);
   const [joined, setJoined] = useState(false);
 
-  const [localAudioEnabled, setLocalAudioEnabled] = useState(true);
-  const [localVideoEnabled, setLocalVideoEnabled] = useState(true);
+  const [localAudioEnabled, setLocalAudioEnabled] = useState(false);
+  const [localVideoEnabled, setLocalVideoEnabled] = useState(false);
 
   const [remotePeers, setRemotePeers] = useState([]);
   const [chatOpen, setChatOpen] = useState(false);
@@ -61,6 +62,7 @@ export default function MeetingPage() {
   );
 
   const [emojiMenuOpen, setEmojiMenuOpen] = useState(false);
+  const [whiteboardVisible, setWhiteboardVisible] = useState(true);
 
   const localStreamRef = useRef(null);
   const currentRoomIdRef = useRef('');
@@ -72,6 +74,7 @@ export default function MeetingPage() {
   const remoteStreamsRef = useRef(new Map());
   const dataChannelsRef = useRef(new Map());
   const participantMetaRef = useRef(new Map());
+  const trackSendersRef = useRef(new Map());
 
   const firestoreReadyRef = useRef(false);
   const firestoreSetupShownRef = useRef(false);
@@ -299,26 +302,34 @@ export default function MeetingPage() {
     const existing = peerConnectionsRef.current.get(peerId);
     if (existing) return existing;
 
+    console.log(`[WebRTC] Creating peer connection for ${peerId}`);
     const pc = new RTCPeerConnection(servers);
     const stream = new MediaStream();
     remoteStreamsRef.current.set(peerId, stream);
     upsertRemotePeer(peerId, { stream });
     applyParticipantMeta(peerId);
 
+    const senders = [];
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current);
+        const sender = pc.addTrack(track, localStreamRef.current);
+        senders.push({ trackKind: track.kind, sender });
+        console.log(`[WebRTC] Added ${track.kind} track to peer ${peerId}`);
       });
+      trackSendersRef.current.set(peerId, senders);
     }
 
     pc.ondatachannel = (event) => {
+      console.log(`[WebRTC] Data channel opened for ${peerId}`);
       wireDataChannel(peerId, event.channel);
     };
 
     pc.ontrack = (event) => {
+      console.log(`[WebRTC] Received ${event.track.kind} track from ${peerId}, streams:`, event.streams.length);
       event.streams[0].getTracks().forEach((track) => {
         if (!stream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
           stream.addTrack(track);
+          console.log(`[WebRTC] Added ${track.kind} track to remote stream for ${peerId}`);
         }
       });
       upsertRemotePeer(peerId, { stream });
@@ -335,6 +346,7 @@ export default function MeetingPage() {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection state for ${peerId}: ${pc.connectionState}`);
       if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
         closePeerConnection(peerId);
       }
@@ -352,6 +364,7 @@ export default function MeetingPage() {
       wireDataChannel(peerId, channel);
     }
 
+    console.log(`[WebRTC] Creating offer for peer ${peerId}`);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
@@ -359,6 +372,7 @@ export default function MeetingPage() {
       type: 'offer',
       sdp: offer.sdp,
     });
+    console.log(`[WebRTC] Sent offer to ${peerId}`);
   }, [getOrCreatePeerConnection, sendSignal, wireDataChannel]);
 
   const handleSignal = useCallback(async (change) => {
@@ -366,9 +380,11 @@ export default function MeetingPage() {
     const from = signal.from;
     if (!from || from === localParticipantIdRef.current) return;
 
+    console.log(`[WebRTC] Received ${signal.type} signal from ${from}`);
     const pc = getOrCreatePeerConnection(from);
 
     if (signal.type === 'offer') {
+      console.log(`[WebRTC] Processing offer from ${from}`);
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -376,10 +392,12 @@ export default function MeetingPage() {
         type: 'answer',
         sdp: answer.sdp,
       });
+      console.log(`[WebRTC] Sent answer to ${from}`);
       return;
     }
 
     if (signal.type === 'answer') {
+      console.log(`[WebRTC] Processing answer from ${from}`);
       if (!pc.currentRemoteDescription) {
         await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
       }
@@ -398,9 +416,15 @@ export default function MeetingPage() {
   const subscribeToRoom = useCallback((roomId) => {
     const roomRef = getRoomRef(roomId);
 
+    console.log(`[WebRTC] Subscribing to room ${roomId}`);
+
     participantUnsubscribeRef.current = roomRef.collection('participants').onSnapshot((snapshot) => {
+      console.log(`[WebRTC] Participant snapshot: ${snapshot.docChanges().length} changes`);
+      
       snapshot.docChanges().forEach((change) => {
         const peerId = change.doc.id;
+        console.log(`[WebRTC] Participant ${change.type}: ${peerId}, local: ${localParticipantIdRef.current}`);
+        
         if (peerId === localParticipantIdRef.current) return;
 
         const data = change.doc.data() || {};
@@ -413,7 +437,8 @@ export default function MeetingPage() {
 
         applyParticipantMeta(peerId);
 
-        if (change.type === 'added' && localParticipantIdRef.current < peerId) {
+        if (change.type === 'added') {
+          console.log(`[WebRTC] New participant ${peerId} detected, creating offer (local ${localParticipantIdRef.current} < peer ${peerId}: ${localParticipantIdRef.current < peerId})`);
           createOfferForPeer(peerId).catch((error) => {
             console.error(`Offer creation failed for ${peerId}:`, error);
           });
@@ -429,6 +454,7 @@ export default function MeetingPage() {
       .collection('signals')
       .where('to', '==', localParticipantIdRef.current)
       .onSnapshot((snapshot) => {
+        console.log(`[WebRTC] Signal snapshot: ${snapshot.docChanges().length} signals`);
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             handleSignal(change).catch((error) => {
@@ -441,17 +467,44 @@ export default function MeetingPage() {
 
   const startMedia = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       localStreamRef.current = stream;
-      setLocalAudioEnabled(true);
+      setLocalAudioEnabled(false);
       setLocalVideoEnabled(true);
       await refreshAudioOutputs();
-      setStatusMessage('Webcam ready. Join room to connect.');
+      
+      console.log('[WebRTC] Camera started, adding tracks to existing peers');
+      peerConnectionsRef.current.forEach(async (pc, peerId) => {
+        const senders = trackSendersRef.current.get(peerId) || [];
+        stream.getTracks().forEach((track) => {
+          const existingSender = senders.find(s => s.trackKind === track.kind);
+          if (!existingSender) {
+            const sender = pc.addTrack(track, localStreamRef.current);
+            senders.push({ trackKind: track.kind, sender });
+            console.log(`[WebRTC] Added ${track.kind} track to existing peer ${peerId}`);
+          }
+        });
+        trackSendersRef.current.set(peerId, senders);
+        
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendSignal(currentRoomIdRef.current, peerId, {
+            type: 'offer',
+            sdp: offer.sdp,
+          });
+          console.log(`[WebRTC] Sent renegotiation offer to ${peerId}`);
+        } catch (err) {
+          console.error(`[WebRTC] Failed to renegotiate with ${peerId}:`, err);
+        }
+      });
+      
+      setStatusMessage('Camera ready.');
     } catch (error) {
       console.error('Webcam access failed:', error);
       setStatusMessage('Could not access webcam/microphone.', true);
     }
-  }, [refreshAudioOutputs, setStatusMessage]);
+  }, [refreshAudioOutputs, setStatusMessage, sendSignal]);
 
   const joinRoom = useCallback(async () => {
     const roomId = decodeURIComponent(meetingId).trim();
@@ -463,17 +516,15 @@ export default function MeetingPage() {
     const ready = await ensureFirestoreReady();
     if (!ready) return;
 
-    if (!localStreamRef.current) {
-      setStatusMessage('Start webcam before joining.', true);
-      return;
-    }
-
     const normalizedUsername = normalizeName(username) || randomGuestName();
     setUsername(normalizedUsername);
+
+    console.log(`[WebRTC] Joining room ${roomId} as ${normalizedUsername}`);
 
     try {
       currentRoomIdRef.current = roomId;
       localParticipantIdRef.current = randomParticipantId();
+      console.log(`[WebRTC] Local participant ID: ${localParticipantIdRef.current}`);
 
       const roomRef = getRoomRef(roomId);
       await roomRef.set({ updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -506,6 +557,7 @@ export default function MeetingPage() {
     Array.from(peerConnectionsRef.current.keys()).forEach(closePeerConnection);
     setRemotePeers([]);
     participantMetaRef.current.clear();
+    trackSendersRef.current.clear();
 
     if (roomId && participantId) {
       try {
@@ -531,20 +583,94 @@ export default function MeetingPage() {
   const toggleAudio = useCallback(async () => {
     if (!localStreamRef.current) return;
     const next = !localAudioEnabled;
-    localStreamRef.current.getAudioTracks().forEach((track) => {
-      track.enabled = next;
-    });
+
+    if (next) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      let audioTrack = audioTracks[0];
+      if (!audioTrack) {
+        try {
+          console.log('[WebRTC] Requesting microphone access');
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioTrack = audioStream.getAudioTracks()[0];
+          localStreamRef.current.addTrack(audioTrack);
+          
+          peerConnectionsRef.current.forEach(async (pc, peerId) => {
+            const sender = pc.addTrack(audioTrack, localStreamRef.current);
+            const senders = trackSendersRef.current.get(peerId) || [];
+            senders.push({ trackKind: 'audio', sender });
+            trackSendersRef.current.set(peerId, senders);
+            console.log(`[WebRTC] Added audio track to peer ${peerId}, triggering renegotiation`);
+            
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              sendSignal(currentRoomIdRef.current, peerId, {
+                type: 'offer',
+                sdp: offer.sdp,
+              });
+            } catch (err) {
+              console.error(`[WebRTC] Failed to renegotiate for ${peerId}:`, err);
+            }
+          });
+        } catch (error) {
+          console.error('Microphone access failed:', error);
+          setStatusMessage('Could not access microphone.', true);
+          return;
+        }
+      }
+      audioTrack.enabled = true;
+      console.log('[WebRTC] Audio enabled');
+    } else {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      console.log('[WebRTC] Audio disabled');
+    }
+
     setLocalAudioEnabled(next);
-  }, [localAudioEnabled]);
+  }, [localAudioEnabled, sendSignal]);
 
   const toggleVideo = useCallback(async () => {
     if (!localStreamRef.current) return;
     const next = !localVideoEnabled;
-    localStreamRef.current.getVideoTracks().forEach((track) => {
-      track.enabled = next;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0];
+    
+    if (!videoTrack) {
+      console.warn('[WebRTC] No video track found');
+      return;
+    }
+
+    videoTrack.enabled = next;
+    console.log(`[WebRTC] Video toggled: ${next ? 'ON' : 'OFF'}`);
+
+    peerConnectionsRef.current.forEach(async (pc, peerId) => {
+      const senders = trackSendersRef.current.get(peerId) || [];
+      const videoSender = senders.find(s => s.trackKind === 'video');
+      
+      if (next && !videoSender) {
+        const sender = pc.addTrack(videoTrack, localStreamRef.current);
+        senders.push({ trackKind: 'video', sender });
+        trackSendersRef.current.set(peerId, senders);
+        console.log(`[WebRTC] Added video track to peer ${peerId}, triggering renegotiation`);
+        
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendSignal(currentRoomIdRef.current, peerId, {
+            type: 'offer',
+            sdp: offer.sdp,
+          });
+        } catch (err) {
+          console.error(`[WebRTC] Failed to renegotiate for ${peerId}:`, err);
+        }
+      } else if (!next && videoSender) {
+        videoSender.sender.track.enabled = false;
+        console.log(`[WebRTC] Disabled video track for peer ${peerId}`);
+      }
     });
+
     setLocalVideoEnabled(next);
-  }, [localVideoEnabled]);
+  }, [localVideoEnabled, sendSignal]);
 
   useEffect(() => {
     if (!joined) return;
@@ -674,26 +800,38 @@ export default function MeetingPage() {
         <p className={`mt-2 text-sm ${statusError ? 'text-red-700' : 'text-cyan-700'}`}>{status}</p>
       </header>
 
-      <section className="mt-4 grid max-h-[67vh] gap-3 overflow-y-auto">
-        <VideoTile
-          title={`${normalizeName(username) || 'You'} (You)`}
-          stream={localStreamRef.current}
-          videoEnabled={localVideoEnabled}
-          avatarLetter={localAvatar}
-          muted
-        />
+      <section className="mt-4 flex gap-3" style={{ height: 'calc(100vh - 180px)' }}>
+        {whiteboardVisible && (
+          <div className="flex-[4] rounded-2xl border border-slate-300 overflow-hidden">
+            <Whiteboard roomId={meetingId} />
+          </div>
+        )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {remotePeers.map((peer) => (
+        <div className={`${whiteboardVisible ? 'flex-1' : 'w-full'} rounded-2xl border border-slate-300 bg-white overflow-y-auto max-h-full`}>
+          <div className="p-2 space-y-2">
+            <h3 className="text-xs font-semibold text-slate-700 px-1">Participants ({remotePeers.length + 1})</h3>
+            
             <VideoTile
-              key={peer.id}
-              title={peer.username}
-              stream={peer.stream}
-              videoEnabled={peer.videoEnabled}
-              avatarLetter={avatarLetter(peer.username)}
-              sinkId={selectedSinkId}
+              title={`${normalizeName(username) || 'You'} (You)`}
+              stream={localStreamRef.current}
+              videoEnabled={localVideoEnabled}
+              avatarLetter={localAvatar}
+              muted
+              compact
             />
-          ))}
+            
+            {remotePeers.map((peer) => (
+              <VideoTile
+                key={peer.id}
+                title={peer.username}
+                stream={peer.stream}
+                videoEnabled={peer.videoEnabled}
+                avatarLetter={avatarLetter(peer.username)}
+                sinkId={selectedSinkId}
+                compact
+              />
+            ))}
+          </div>
         </div>
       </section>
 
@@ -715,6 +853,8 @@ export default function MeetingPage() {
         onToggleAudio={toggleAudio}
         onToggleVideo={toggleVideo}
         onToggleChat={() => setChatOpen((prev) => !prev)}
+        onToggleWhiteboard={() => setWhiteboardVisible(prev => !prev)}
+        whiteboardVisible={whiteboardVisible}
         onLeave={async () => {
           await leaveRoom(true);
           navigate('/');

@@ -1,6 +1,6 @@
 import React from 'react'
 import Navbar from '../components/Navbar'
-import '../css/signup.scss'
+import '../css/signup.css'
 import signupImg from '../assets/signup-img.svg'
 
 const Signup = () => {

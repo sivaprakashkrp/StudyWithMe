@@ -13,10 +13,12 @@
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@tldraw/sync": "^4.5.10",
+    "@tldraw/tldraw": "^4.5.10",
+    "firebase": "8.2.10",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.0",
-    "firebase": "8.2.10",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {

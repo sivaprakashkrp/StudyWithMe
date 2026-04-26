@@ -7,6 +7,7 @@ export default function VideoTile({
   avatarLetter,
   muted = false,
   sinkId = '',
+  compact = false,
 }) {
   const videoRef = useRef(null);
 
@@ -30,21 +31,26 @@ export default function VideoTile({
     applySink();
   }, [sinkId]);
 
+  const padding = compact ? 'p-1.5' : 'p-3';
+  const titleSize = compact ? 'text-xs' : 'text-sm';
+  const avatarSize = compact ? 'text-3xl' : 'text-5xl';
+  const marginBottom = compact ? 'mb-1' : 'mb-2';
+
   return (
-    <article className="rounded-2xl border border-slate-300/70 bg-white/75 p-3 shadow-sm backdrop-blur"
+    <article className={`rounded-xl border border-slate-300/70 bg-white/75 shadow-sm backdrop-blur ${padding}`}
       data-video={videoEnabled ? 'on' : 'off'}
     >
-      <h3 className="mb-2 text-sm font-semibold text-slate-700">{title}</h3>
+      <h3 className={`${marginBottom} ${titleSize} font-semibold text-slate-700 truncate`}>{title}</h3>
       <div className="relative">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={muted}
-          className={`aspect-video w-full rounded-xl bg-slate-900 object-cover ${videoEnabled ? '' : 'invisible'}`}
+          className={`aspect-video w-full rounded-lg bg-slate-900 object-cover ${videoEnabled ? '' : 'invisible'}`}
         />
         {!videoEnabled && (
-          <div className="absolute inset-0 grid place-items-center rounded-xl bg-linear-to-br from-cyan-900 to-slate-900 text-5xl text-slate-100">
+          <div className={`absolute inset-0 grid place-items-center rounded-lg bg-linear-to-br from-cyan-900 to-slate-900 ${avatarSize} text-slate-100`}>
             {avatarLetter}
           </div>
         )}
